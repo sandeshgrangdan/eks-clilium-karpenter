@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grpc-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: grpc-server
+  name: grpc-server
+  namespace: grpc-server
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: grpc-server
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: grpc-server
+    spec:
+      containers:
+      - image: docker.io/vimuchiaroni/grpc-server:0.1
+        name: grpc-server
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: grpc-server
+  annotations:
+    service.cilium.io/lb-l7: enabled
+    service.cilium.io/lb-l7-algorithm: round_robin
+  name: grpc-server
+  namespace: grpc-server
+spec:
+  type: ClusterIP
+  ports:
+  - port: 50051
+    protocol: TCP
+    targetPort: 50051
+  selector:
+    app: grpc-server
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  labels:
+    app: grpc-server
+  name: grpc-server
+  namespace: grpc-server
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/backend-protocol-version: "GRPC"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-southeast-1:246613758532:certificate/799416e9-c55e-4288-8201-080eef184ef1
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+spec:
+  rules:
+  - host: cilium-grpc.advancedpedagogy.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: grpc-server
+            port:
+              number: 50051
+        path: /*
+        pathType: ImplementationSpecific

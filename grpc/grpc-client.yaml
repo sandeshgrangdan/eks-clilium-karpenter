@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grpc-client
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: grpc-client
+  name: grpc-client
+  namespace: grpc-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grpc-client
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: grpc-client
+    spec:
+      containers:
+      - image: docker.io/vimuchiaroni/grpc-client:0.1
+        name: grpc-client
+        env:
+        - name: SERVER_URL
+          value: "cilium-grpc.advancedpedagogy.com"
+        - name: PYTHONUNBUFFERED
+          value: "1"
