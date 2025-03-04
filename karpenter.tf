@@ -24,102 +24,99 @@ data "aws_ecrpublic_authorization_token" "token" {
 }
 
 resource "helm_release" "karpenter" {
-  namespace           = "karpenter"
+  namespace           = "kube-system"
   create_namespace    = true
   name                = "karpenter"
   repository          = "oci://public.ecr.aws/karpenter"
   repository_username = data.aws_ecrpublic_authorization_token.token.user_name
   repository_password = data.aws_ecrpublic_authorization_token.token.password
   chart               = "karpenter"
-  version             = "0.35.1"
+  version             = "1.2.2"
   wait                = false
 
   values = [
     <<-EOT
+    nodeSelector:
+      karpenter.sh/controller: 'true'
+    dnsPolicy: Default
     settings:
       clusterName: ${local.name_prefix}
+      clusterEndpoint: ${data.aws_eks_cluster.cluster.endpoint}
       interruptionQueue: ${module.karpenter.queue_name}
-    controller:
-      resources:
-        cpu: 1
-        memory: 1Gi
-      limit:
-        cpu: 1
-        memory: 1Gi
+    webhook:
+      enabled: false
     EOT
   ]
 
   depends_on = [
-    module.karpenter
+    module.karpenter,
+    module.eks_managed_node_group
   ]
 }
 
 
-# resource "kubectl_manifest" "karpenter_node_class" {
-#   yaml_body = <<-YAML
-#     apiVersion: karpenter.k8s.aws/v1beta1
-#     kind: EC2NodeClass
-#     metadata:
-#       name: default
-#     spec:
-#       amiFamily: AL2
-#       role: ${module.eks_managed_node_group.iam_role_arn}
-#       subnetSelectorTerms:
-#         - tags:
-#             karpenter.sh/discovery: ${local.name_prefix}
-#       securityGroupSelectorTerms:
-#         - tags:
-#             karpenter.sh/discovery: ${local.name_prefix}
-#       amiSelectorTerms:
-#         - id: ami-0d4f6257f835ecb0d
-#         - id: ami-02e34459acfa72945
-#   YAML
+resource "kubectl_manifest" "karpenter_node_class" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.k8s.aws/v1
+    kind: EC2NodeClass
+    metadata:
+      name: default
+    spec:
+      amiSelectorTerms:
+        - alias: bottlerocket@latest
+      role: ${module.eks_managed_node_group.iam_role_arn}
+      subnetSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${local.name_prefix}
+      securityGroupSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${local.name_prefix}
+      tags:
+        karpenter.sh/discovery: ${local.name_prefix}
+  YAML
 
-#   depends_on = [
-#     helm_release.karpenter
-#   ]
-# }
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
 
-# resource "kubectl_manifest" "karpenter_node_pool" {
-#   yaml_body = <<-YAML
-#   apiVersion: karpenter.sh/v1beta1
-#   kind: NodePool
-#   metadata:
-#     name: default
-#   spec:
-#     template:
-#       spec:
-#         requirements:
-#           - key: kubernetes.io/arch
-#             operator: In
-#             values: ["amd64"]
-#           - key: kubernetes.io/os
-#             operator: In
-#             values: ["linux"]
-#           - key: karpenter.sh/capacity-type
-#             operator: In
-#             values: ["spot"]
-#           - key: karpenter.k8s.aws/instance-category
-#             operator: In
-#             values: ["c", "m", "r"]
-#           - key: karpenter.k8s.aws/instance-generation
-#             operator: Gt
-#             values: ["2"]
-#         nodeClassRef:
-#           apiVersion: karpenter.k8s.aws/v1beta1
-#           kind: EC2NodeClass
-#           name: default
-#     limits:
-#       cpu: 1000
-#     disruption:
-#       consolidationPolicy: WhenUnderutilized
-#       expireAfter: 720h # 30 * 24h = 720h
-#   YAML
+resource "kubectl_manifest" "karpenter_node_pool" {
+  yaml_body = <<-YAML
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: "karpenter.k8s.aws/instance-category"
+          operator: In
+          values: ["c", "m", "r"]
+        - key: "karpenter.k8s.aws/instance-cpu"
+          operator: In
+          values: ["4", "8", "16", "32"]
+        - key: "karpenter.k8s.aws/instance-hypervisor"
+          operator: In
+          values: ["nitro"]
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: Gt
+          values: ["2"]
+  limits:
+    cpu: 1000
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30s
+  YAML
 
-#   depends_on = [
-#     kubectl_manifest.karpenter_node_class
-#   ]
-# }
+  depends_on = [
+    kubectl_manifest.karpenter_node_class
+  ]
+}
 
 # resource "kubectl_manifest" "karpenter_example_deployment" {
 #   yaml_body = <<-YAML

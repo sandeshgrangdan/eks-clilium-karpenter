@@ -78,6 +78,7 @@ module "eks_managed_node_group" {
       labels = {
         instance_mode = "spot"
         service_mode  = "spot"
+        "karpenter.sh/controller" = "true"
       }
 
       taints = [
